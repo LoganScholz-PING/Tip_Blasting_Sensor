@@ -66,7 +66,7 @@ void loop() {
 
       Stop_Blasting();
     }
-    else if (current_shaft_sensor_value) { // HIGH = NO SHAFT PRESENT
+    else if (current_shaft_sensor_value || current_door_sensor_value) { // HIGH = NO SHAFT PRESENT
       #ifdef USING_SERIAL_FOR_DEBUG
       Serial.println(F("[INFO] SHAFT NO LONGER PRESENT. STOPPING."));
       #endif
