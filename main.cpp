@@ -1,12 +1,27 @@
 #include <Arduino.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
-//#define USING_SERIAL_FOR_DEBUG 1
+#define USING_SERIAL_FOR_DEBUG 1
 
 // convenience defines
 #define SHAFT_SENSOR_PIN digitalRead(2)
 #define DOOR_SENSOR_PIN digitalRead(53) // 5V=DOOR OPEN / GND=DOOR CLOSED
 #define RELAY_ON     digitalWrite(8, HIGH)
 #define RELAY_OFF    digitalWrite(8, LOW)
+#define READ_ADD_1_SEC_BTN  digitalRead(23)
+#define READ_SUB_1_SEC_BTN  digitalRead(25)
+
+#define BTN_ADD_1_SECOND 23
+#define BTN_RMV_1_SECOND 25
+
+#define SCREEN_WIDTH   128 // OLED display width, in pixels
+#define SCREEN_HEIGHT  32 // OLED display height, in pixels
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C /// both are 0x3C
+Adafruit_SSD1306 LED(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 unsigned long debounce_timeout   = 250;  // milliseconds
 unsigned long last_debounce_time = 0;   // milliseconds
@@ -16,6 +31,43 @@ unsigned long last_led_start_time = 0;
 boolean prev_sensor_value = true; // PULL-UP, AKA no shaft present = HIGH
 boolean turn_on_blaster_relay      = false;
 
+void delaySafeMillis(unsigned long timeToWaitMilli) {
+  unsigned long start_time = millis();
+  while (millis() - start_time <= timeToWaitMilli) { /* just hang out */ }
+}
+
+void clearScreenAddOneSecond() {
+  led_on_time += 1000;
+  if(led_on_time > 10000) {
+    led_on_time = 10000; // latch @ 10 secs max
+  }
+  LED.clearDisplay();
+  LED.setTextColor(SSD1306_WHITE);
+  LED.setTextSize(2);
+  LED.setCursor(0,0);
+  LED.println("ON TIME: ");
+  unsigned long seconds = led_on_time / 1000;
+  LED.print((int)seconds);
+  LED.print(" SEC");
+  LED.display();
+}
+
+void clearScreenSubtractOneSecond() {
+  led_on_time -= 1000;
+  if(led_on_time <= 0) {
+    led_on_time = 1000; // latch @ 1 sec min
+  }
+  LED.clearDisplay();
+  LED.setTextColor(SSD1306_WHITE);
+  LED.setTextSize(2);
+  LED.setCursor(0,0);
+  LED.println("ON TIME: ");
+  unsigned long seconds = led_on_time / 1000;
+  LED.print((int)seconds);
+  LED.print(" SEC");
+  LED.display();
+}
+
 void setup() {
 #ifdef USING_SERIAL_FOR_DEBUG
   Serial.begin(115200);
@@ -24,8 +76,28 @@ void setup() {
   pinMode(2, INPUT);
   pinMode(53, INPUT);
   pinMode(8, OUTPUT);
+  pinMode(23, INPUT_PULLUP); // add 1 second button
+  pinMode(25, INPUT_PULLUP); // remove 1 second button
 
   RELAY_OFF;
+
+  if(!LED.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) 
+  {
+#ifdef USING_SERIAL_FOR_DEBUG
+    Serial.println(F("SSD1306 allocation failed"));
+#endif   
+    for(;;); // Don't proceed, loop forever
+  } 
+
+  LED.clearDisplay();
+  LED.setTextColor(SSD1306_WHITE);
+  LED.setTextSize(2);
+  LED.setCursor(0,0);
+  LED.println("ON TIME: ");
+  unsigned long seconds = led_on_time / 1000;
+  LED.print((int)seconds);
+  LED.print(" SEC");
+  LED.display();
 
 #ifdef USING_SERIAL_FOR_DEBUG
   Serial.println(F("Entering main loop..."));
@@ -43,18 +115,30 @@ void Stop_Blasting() {
 }
 
 void loop() {
+  bool current_add_1_sec_btn_value = !READ_ADD_1_SEC_BTN; // LOW = BUTTON PUSHED
+  bool current_sub_1_sec_btn_value = !READ_SUB_1_SEC_BTN; // LOW = BUTTON PUSHED
   bool current_shaft_sensor_value = SHAFT_SENSOR_PIN; // LOW = SHAFT PRESENT // HIGH = NO SHAFT PRESENT
   bool current_door_sensor_value = DOOR_SENSOR_PIN; // LOW = DOOR CLOSED // HIGH = DOOR OPEN
 
-  if((millis() - last_debounce_time > debounce_timeout) && !current_door_sensor_value) {
-    if (prev_sensor_value == true && current_shaft_sensor_value == false) { // check if this is a HIGH->LOW transition
-     
-      #ifdef USING_SERIAL_FOR_DEBUG
-      Serial.println(F("[INFO] DEBOUNCE TRIGGERED!"));
-      #endif
-      Start_Blasting();
-      last_led_start_time = millis();
-      last_debounce_time = last_led_start_time; 
+  if(millis() - last_debounce_time > debounce_timeout) {
+    if(current_add_1_sec_btn_value) {
+      clearScreenAddOneSecond();
+      last_debounce_time = millis(); 
+    } 
+    else if (current_sub_1_sec_btn_value) {
+      clearScreenSubtractOneSecond();
+      last_debounce_time = millis();
+    } 
+    
+    if(!current_door_sensor_value) {
+      if (prev_sensor_value == true && current_shaft_sensor_value == false) { // check if this is a HIGH->LOW transition
+        #ifdef USING_SERIAL_FOR_DEBUG
+        Serial.println(F("[INFO] DEBOUNCE TRIGGERED!"));
+        #endif
+        Start_Blasting();
+        last_led_start_time = millis();
+        last_debounce_time = last_led_start_time; 
+      }
     }
   }
 
@@ -63,12 +147,11 @@ void loop() {
       #ifdef USING_SERIAL_FOR_DEBUG
       Serial.println(F("[INFO] TIMEOUT REACHED. TURNING LED OFF"));
       #endif
-
       Stop_Blasting();
     }
     else if (current_shaft_sensor_value || current_door_sensor_value) { // HIGH = NO SHAFT PRESENT
       #ifdef USING_SERIAL_FOR_DEBUG
-      Serial.println(F("[INFO] SHAFT NO LONGER PRESENT. STOPPING."));
+      Serial.println(F("[INFO] SHAFT NO LONGER PRESENT OR DOOR OPEN. STOPPING."));
       #endif
       Stop_Blasting();
     }
