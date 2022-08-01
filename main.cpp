@@ -70,16 +70,16 @@ void redrawOLEDScreen(BTN_ACTION_ENUM btn_action) {
   
   // redraw current blast time
   LED.setCursor(0,0);
-  LED.println("BLAST TIME:");
+  LED.print("ON TIME: ");
   unsigned long seconds = led_on_time / 1000;
-  LED.println((int)seconds);
-  LED.print("  SEC");
+  LED.print((int)seconds);
+  LED.println(" SEC\n");
 
   // redraw total # shafts blasted (since last microcontroller restart)
-  LED.setCursor(64, 0);
-  LED.println("SHFT CNT:");
-  LED.setCursor(64, 20);
-  LED.println((int)total_shaft_count);
+  //LED.setCursor(64, 0);
+  LED.print("COUNT: ");
+  //LED.setCursor(64, 20);
+  LED.print((int)total_shaft_count);
 
   LED.display();
 }
