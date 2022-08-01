@@ -4,7 +4,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#define USING_SERIAL_FOR_DEBUG 1
+//#define USING_SERIAL_FOR_DEBUG 1
 
 // convenience defines
 #define SHAFT_SENSOR_PIN digitalRead(2)
@@ -27,44 +27,60 @@ unsigned long debounce_timeout   = 250;  // milliseconds
 unsigned long last_debounce_time = 0;   // milliseconds
 unsigned long led_on_time         = 3000;
 unsigned long last_led_start_time = 0;
+unsigned long total_shaft_count   = 0;
 
 boolean prev_sensor_value = true; // PULL-UP, AKA no shaft present = HIGH
 boolean turn_on_blaster_relay      = false;
+
+// this enum will make it cleaner to control the OLED screen
+enum BTN_ACTION_ENUM {
+  OLED_ADD_1_SECOND,
+  OLED_SUB_1_SECOND,
+  OLED_INCREMENT_SHAFT_COUNT,
+  OLED_NO_ACTION
+};
 
 void delaySafeMillis(unsigned long timeToWaitMilli) {
   unsigned long start_time = millis();
   while (millis() - start_time <= timeToWaitMilli) { /* just hang out */ }
 }
 
-void clearScreenAddOneSecond() {
-  led_on_time += 1000;
-  if(led_on_time > 10000) {
-    led_on_time = 10000; // latch @ 10 secs max
+void redrawOLEDScreen(BTN_ACTION_ENUM btn_action) {
+  switch (btn_action) {
+    case OLED_ADD_1_SECOND:
+      led_on_time += 1000;
+      if(led_on_time > 10000) led_on_time = 10000; // latch @ 10 secs max
+      break;
+    case OLED_SUB_1_SECOND:
+      led_on_time -= 1000;
+      if(led_on_time <= 0)    led_on_time = 1000;  // latch @ 1 sec min
+      break;
+    case OLED_INCREMENT_SHAFT_COUNT:
+      total_shaft_count += 1;
+      break;
+    case OLED_NO_ACTION:
+    default:
+      // default cases
+      break;
   }
-  LED.clearDisplay();
-  LED.setTextColor(SSD1306_WHITE);
-  LED.setTextSize(2);
-  LED.setCursor(0,0);
-  LED.println("ON TIME: ");
-  unsigned long seconds = led_on_time / 1000;
-  LED.print((int)seconds);
-  LED.print(" SEC");
-  LED.display();
-}
 
-void clearScreenSubtractOneSecond() {
-  led_on_time -= 1000;
-  if(led_on_time <= 0) {
-    led_on_time = 1000; // latch @ 1 sec min
-  }
   LED.clearDisplay();
   LED.setTextColor(SSD1306_WHITE);
-  LED.setTextSize(2);
+  LED.setTextSize(1);
+  
+  // redraw current blast time
   LED.setCursor(0,0);
-  LED.println("ON TIME: ");
+  LED.println("BLAST TIME:");
   unsigned long seconds = led_on_time / 1000;
-  LED.print((int)seconds);
-  LED.print(" SEC");
+  LED.println((int)seconds);
+  LED.print("  SEC");
+
+  // redraw total # shafts blasted (since last microcontroller restart)
+  LED.setCursor(64, 0);
+  LED.println("SHFT CNT:");
+  LED.setCursor(64, 20);
+  LED.println((int)total_shaft_count);
+
   LED.display();
 }
 
@@ -89,15 +105,7 @@ void setup() {
     for(;;); // Don't proceed, loop forever
   } 
 
-  LED.clearDisplay();
-  LED.setTextColor(SSD1306_WHITE);
-  LED.setTextSize(2);
-  LED.setCursor(0,0);
-  LED.println("ON TIME: ");
-  unsigned long seconds = led_on_time / 1000;
-  LED.print((int)seconds);
-  LED.print(" SEC");
-  LED.display();
+  redrawOLEDScreen(BTN_ACTION_ENUM::OLED_NO_ACTION);
 
 #ifdef USING_SERIAL_FOR_DEBUG
   Serial.println(F("Entering main loop..."));
@@ -112,6 +120,7 @@ void Start_Blasting() {
 void Stop_Blasting() {
   turn_on_blaster_relay = false;
   RELAY_OFF;
+  redrawOLEDScreen(BTN_ACTION_ENUM::OLED_INCREMENT_SHAFT_COUNT);
 }
 
 void loop() {
@@ -122,11 +131,11 @@ void loop() {
 
   if(millis() - last_debounce_time > debounce_timeout) {
     if(current_add_1_sec_btn_value) {
-      clearScreenAddOneSecond();
+      redrawOLEDScreen(BTN_ACTION_ENUM::OLED_ADD_1_SECOND);
       last_debounce_time = millis(); 
     } 
     else if (current_sub_1_sec_btn_value) {
-      clearScreenSubtractOneSecond();
+      redrawOLEDScreen(BTN_ACTION_ENUM::OLED_SUB_1_SECOND);
       last_debounce_time = millis();
     } 
     
