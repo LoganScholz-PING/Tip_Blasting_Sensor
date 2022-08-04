@@ -88,7 +88,7 @@ void redrawOLEDScreen(BTN_ACTION_ENUM btn_action) {
 void setWDT(byte sWDT) {
   WDTCSR |= 0b00011000; // get register ready for writing
                         // (we have 4 CPU cycles to change the register)
-  WDTCSR = sWDT | WDTO_4S; // WDT reset arduino after 4 seconds of inactivity
+  WDTCSR = sWDT | WDTO_2S; // WDT reset arduino after 4 seconds of inactivity
   wdt_reset(); // confirm the settings
 }
 
@@ -124,7 +124,8 @@ void setup() {
 // #endif
 
   setWDT(0b00001000); // 00001000 = just reset if WDT not handled within timeframe
-                      // 01001000 = set  
+                      // 01001000 = set to trigger interrupt then reset
+                      // 01000000 = just interrupt 
 }
 
 void Start_Blasting() {
@@ -139,6 +140,7 @@ void Stop_Blasting() {
 }
 
 void loop() {
+  wdt_reset(); // if we don't reset the WDT within 2 seconds the arduino will restart
   bool current_add_1_sec_btn_value = !READ_ADD_1_SEC_BTN; // LOW = BUTTON PUSHED
   bool current_sub_1_sec_btn_value = !READ_SUB_1_SEC_BTN; // LOW = BUTTON PUSHED
   bool current_shaft_sensor_value  = SHAFT_SENSOR_PIN;    // LOW = SHAFT PRESENT // HIGH = NO SHAFT PRESENT
@@ -190,5 +192,4 @@ void loop() {
   // #endif
 
   prev_sensor_value = current_shaft_sensor_value;
-  wdt_reset(); // if we don't reset the WDT within 4 seconds the arduino will restart
 }
