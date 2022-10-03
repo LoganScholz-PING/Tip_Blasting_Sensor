@@ -3,6 +3,7 @@
 
 void trigger0(); // Subtract 1 Second Button
 void trigger1(); // Add 1 Second Button
-void trigger2(); // TODO: DELETE - for faking the shaft
+void trigger2(); // clear EEPROM button
+void trigger3(); // switch type from IRON to GRAPHITE
 
 #endif
