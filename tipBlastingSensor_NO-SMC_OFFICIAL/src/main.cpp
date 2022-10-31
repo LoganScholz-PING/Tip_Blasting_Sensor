@@ -46,7 +46,7 @@ struct EEPROM_CONTENTS {
 
 EEPROM_CONTENTS ec;
 
-boolean prev_sensor_value     = true; // PULL-UP, AKA no shaft present = HIGH
+boolean prev_shaft_sensor_value     = true; // PULL-UP, AKA no shaft present = HIGH
 boolean turn_on_blaster_relay = false;
 
 // variables for tracking nextion button presses
@@ -151,9 +151,6 @@ void setup() {
   pinMode(53, INPUT_PULLUP); // door safety pin
   pinMode(8, OUTPUT); // relay on/off pin
 
-  pinMode(LED_BUILTIN, OUTPUT); // DEBUG - testing WDT
-  digitalWrite(LED_BUILTIN, LOW); // DEBUG - testing WDT
-
   delaySafeMillis(5);
 
   RELAY_OFF;
@@ -195,9 +192,9 @@ void loop() {
 
   handleMillisRolloverCondition(); // for both shaft timer and eeprom timer
 
-  if(millis() - last_debounce_time > debounce_timeout) {
+  if(!turn_on_blaster_relay && (millis() - last_debounce_time > debounce_timeout)) {
     if(!current_door_sensor_value) {
-      if (prev_sensor_value == true && current_shaft_sensor_value == false) { // check if this is a HIGH->LOW transition
+      if (prev_shaft_sensor_value == true && current_shaft_sensor_value == false) { // check if this is a HIGH->LOW transition
         Start_Blasting();
         last_led_start_time = millis();
         last_debounce_time = last_led_start_time; 
@@ -249,5 +246,5 @@ void loop() {
   nexbtn_reset_eeprom = false;
   nexbtn_switch_club_type = false;
   
-  prev_sensor_value = current_shaft_sensor_value;
+  prev_shaft_sensor_value = current_shaft_sensor_value;
 }
