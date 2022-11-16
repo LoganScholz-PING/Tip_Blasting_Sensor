@@ -21,7 +21,23 @@ Address 0 = total shafts blasted over all time (unsigned long 32 bit (4 byte) va
 
 #define EEPROM_CONTENTS_START_ADDRESS 0 // 4 bytes wide
 
-enum CLUB_TYPE { GRAPHITE, IRON };
+enum CLUB_TYPE { GRAPHITE, IRON, GENERIC };
+
+/*
+Machine status definitions:
+PICTURE ID - DESCRIPTION
+2 - "CLOSED"
+3 - "NO"
+4 - "NO SHAFT"
+5 - "OPEN"
+6 - "YES"
+*/
+
+#define NEX_CLOSED   2
+#define NEX_NO       3
+#define NEX_NO_SHAFT 4
+#define NEX_OPEN     5
+#define NEX_YES      6
 
 // object instantiations
 SoftwareSerial swSerial(11, 12); // nextion display will be connected to 11(RX-BLUE) and 12(TX-YELLOW)
@@ -39,21 +55,23 @@ unsigned long EEPROM_save_period = 3600000; // 1 hour
 unsigned long EEPROM_last_save_time = 0;
 
 struct EEPROM_CONTENTS {
+  // set default values initially
   unsigned long EEPROM_total_shaft_count = 0;
-  CLUB_TYPE club_type = CLUB_TYPE::IRON;
+  CLUB_TYPE club_type = CLUB_TYPE::GENERIC; // club type no longer tracked, making this generic for now
   unsigned long saved_on_time = 4000;
 };
 
 EEPROM_CONTENTS ec;
 
-boolean prev_shaft_sensor_value     = true; // PULL-UP, AKA no shaft present = HIGH
+boolean prev_shaft_sensor_value = true; // PULL-UP, AKA no shaft present = HIGH
+boolean prev_door_sensor_value = true; // DOOR-OPEN, starting with door open as default.. for safety reasons
 boolean turn_on_blaster_relay = false;
 
 // variables for tracking nextion button presses
 bool nexbtn_sub_1_second = false;
 bool nexbtn_add_1_second = false;
 bool nexbtn_reset_eeprom = false;
-bool nexbtn_switch_club_type = false;
+//bool nexbtn_switch_club_type = false;
 
 void delaySafeMillis(unsigned long timeToWaitMilli) {
   unsigned long start_time = millis();
@@ -82,6 +100,10 @@ void updateNextionScreen() {
   unsigned long seconds = led_on_time / 1000;
   myNex.writeStr("t1.txt", String(seconds));
   myNex.writeStr("t2.txt", String(ec.EEPROM_total_shaft_count));
+}
+
+void updateNextionScreenMachineStatus() {
+
 }
 
 void updateEEPROMContents() {
@@ -116,12 +138,16 @@ void loadEEPROMContents() {
 
   led_on_time = ec.saved_on_time;
 
-  if(ec.club_type == CLUB_TYPE::IRON) {
-    myNex.writeNum("bt0.val", 1);
-  } 
-  else if(ec.club_type == CLUB_TYPE::GRAPHITE) {
-    myNex.writeNum("bt0.val", 0);
-  }
+  // if(ec.club_type == CLUB_TYPE::IRON) {
+  //   myNex.writeNum("bt0.val", 1);
+  // } 
+  // else if(ec.club_type == CLUB_TYPE::GRAPHITE) {
+  //   myNex.writeNum("bt0.val", 0);
+  // }
+  // else {
+  //   // CLUB_TYPE::GENERIC
+  //   // TODO
+  // }
 
   // Serial.println(" -- LOADED PARAMS -- ");
   // Serial.print("ec.club_type:");
@@ -148,7 +174,8 @@ void setup() {
   wdt_disable(); // data sheet recommends disabling wdt immediately while uC starts up
 
   pinMode(2, INPUT); // shaft sensor pin
-  pinMode(53, INPUT_PULLUP); // door safety pin
+  //pinMode(53, INPUT_PULLUP); // door safety pin
+  pinMode(53, INPUT); // door safety pin **TESTING**
   pinMode(8, OUTPUT); // relay on/off pin
 
   delaySafeMillis(5);
@@ -166,12 +193,14 @@ void setup() {
 
 void Start_Blasting() {
   turn_on_blaster_relay = true;
+  myNex.writeNum("p4.pic", NEX_YES); // "BLASTING = YES"
   RELAY_ON;
 }
 
 void Stop_Blasting() {
   turn_on_blaster_relay = false;
   RELAY_OFF;
+  myNex.writeNum("p4.pic", NEX_NO); // "BLASTING = NO"
   total_shaft_count += 1;
   updateNextionScreen(); // update the shaft count
 }
@@ -190,11 +219,40 @@ void loop() {
   bool current_shaft_sensor_value  = SHAFT_SENSOR_PIN;    // LOW = SHAFT PRESENT // HIGH = NO SHAFT PRESENT
   bool current_door_sensor_value   = DOOR_SENSOR_PIN;     // LOW = DOOR CLOSED // HIGH = DOOR OPEN
 
+
+
+  // IDEA: Can check here if current_door_sensor_value == OPEN, if so kill blaster and just return; (completely skip all subsequent code)
+  // --> downside: we're going to be updating the display over and over as fast as the loop can repeat
+  // -----> maybe make a FAST emergency shutdown function that leaves the display out of it?
+
+  // update the nextion display machine status indicators for DOOR PRESENCE
+  if(current_door_sensor_value != prev_door_sensor_value) {
+    if(!current_door_sensor_value) {
+      myNex.writeNum("p2.pic", NEX_CLOSED);   // DETECT DOOR OPEN->CLOSE TRANSITION
+    } 
+    else if (current_door_sensor_value) {
+      myNex.writeNum("p2.pic", NEX_OPEN);     // DETECT DOOR CLOSE->OPEN TRANSITION
+    }
+  }
+
+  // update the nextion display machine status indicators for SHAFT PRESENCE
+  if(current_shaft_sensor_value != prev_shaft_sensor_value) {
+    if(!current_shaft_sensor_value) {
+      myNex.writeNum("p3.pic", NEX_YES);      // DETECT SHAFT PRESENT
+    }
+    else if (current_shaft_sensor_value) {
+      myNex.writeNum("p3.pic", NEX_NO_SHAFT); // DETECT SHAFT ABSENT
+    }
+  }
+
+
+
   handleMillisRolloverCondition(); // for both shaft timer and eeprom timer
 
   if(!turn_on_blaster_relay && (millis() - last_debounce_time > debounce_timeout)) {
     if(!current_door_sensor_value) {
       if (prev_shaft_sensor_value == true && current_shaft_sensor_value == false) { // check if this is a HIGH->LOW transition
+        myNex.writeNum("p3.pic", NEX_YES); // "SHAFT SENSE = YES"
         Start_Blasting();
         last_led_start_time = millis();
         last_debounce_time = last_led_start_time; 
@@ -203,10 +261,14 @@ void loop() {
   }
 
   if (turn_on_blaster_relay) {
-    if(millis() - last_led_start_time > led_on_time) { // shaft has been present for entire blast. turn off blasters
+    if(current_door_sensor_value) {
       Stop_Blasting();
     }
-    else if (current_shaft_sensor_value || current_door_sensor_value) { // HIGH = NO SHAFT PRESENT
+    else if(millis() - last_led_start_time > led_on_time) { // shaft has been present for entire blast. turn off blasters
+      Stop_Blasting();
+    }
+    else if (current_shaft_sensor_value) { // HIGH = NO SHAFT PRESENT
+      myNex.writeNum("p3.pic", NEX_NO_SHAFT); // "SHAFT SENSE = NO SHAFT"
       Stop_Blasting();
     }
   }
@@ -229,11 +291,12 @@ void loop() {
     clearEEPROMContents();
   }
 
-  if(nexbtn_switch_club_type) {
-    if(ec.club_type == CLUB_TYPE::IRON) ec.club_type = CLUB_TYPE::GRAPHITE;
-    else ec.club_type = CLUB_TYPE::IRON;
-    updateEEPROMContents();
-  }
+  // !! we are no longer tracking club type for now !!
+  // if(nexbtn_switch_club_type) {
+  //   if(ec.club_type == CLUB_TYPE::IRON) ec.club_type = CLUB_TYPE::GRAPHITE;
+  //   else ec.club_type = CLUB_TYPE::IRON;
+  //   updateEEPROMContents();
+  // }
 
   // update EEPROM every EEPROM_save_period milliseconds
   if((unsigned long)millis() - EEPROM_last_save_time >= EEPROM_save_period) {
@@ -244,7 +307,8 @@ void loop() {
   nexbtn_sub_1_second = false;
   nexbtn_add_1_second = false;
   nexbtn_reset_eeprom = false;
-  nexbtn_switch_club_type = false;
+  //nexbtn_switch_club_type = false;
   
   prev_shaft_sensor_value = current_shaft_sensor_value;
+  prev_door_sensor_value  = current_door_sensor_value;
 }

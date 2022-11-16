@@ -19,6 +19,6 @@ void trigger2() {
     nexbtn_reset_eeprom = true;
 }
 
-void trigger3() {
-    nexbtn_switch_club_type = true;
-}
+// void trigger3() {
+//     nexbtn_switch_club_type = true;
+// }
