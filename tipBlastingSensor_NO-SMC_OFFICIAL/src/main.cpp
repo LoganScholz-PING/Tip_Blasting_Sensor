@@ -246,7 +246,6 @@ void loop() {
   }
 
 
-
   handleMillisRolloverCondition(); // for both shaft timer and eeprom timer
 
   if(!turn_on_blaster_relay && (millis() - last_debounce_time > debounce_timeout)) {
