@@ -174,8 +174,9 @@ void setup() {
   wdt_disable(); // data sheet recommends disabling wdt immediately while uC starts up
 
   pinMode(2, INPUT); // shaft sensor pin
-  //pinMode(53, INPUT_PULLUP); // door safety pin
-  pinMode(53, INPUT); // door safety pin **TESTING**
+  pinMode(53, INPUT_PULLUP); // 5V = DOOR OPEN. Door 
+                             // safety pin. INPUT_PULLUP so that if door sensor is missing,
+                             // the system will safely default to a "DOOR OPEN" state
   pinMode(8, OUTPUT); // relay on/off pin
 
   delaySafeMillis(5);
