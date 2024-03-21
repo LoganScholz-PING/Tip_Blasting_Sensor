@@ -3,23 +3,24 @@ EEPROM CONTENTS DEFINITION:
 Address 0 = total shafts blasted over all time (unsigned long 32 bit (4 byte) variable)
 */
 
-#include <Arduino.h>
-#include <SoftwareSerial.h>
-#include <EasyNextionLibrary.h>
-
-#include <stdlib.h> // for string operations
-
-#include <avr/wdt.h>
-
-#include <EEPROM.h>
-
-// convenience defines
-#define RELAY_ON            digitalWrite(8, HIGH)
-#define RELAY_OFF           digitalWrite(8, LOW)
-#define SHAFT_SENSOR_PIN    digitalRead(2)
-#define DOOR_SENSOR_PIN     digitalRead(53) // 5V=DOOR OPEN / GND=DOOR CLOSED
-
 /*
+Picture enums:
+2 = "CLOSED"
+3 = "NO"
+4 = "NO SHAFT"
+5 = "OPEN"
+6 = "YES"
+7 = "NOT SAFE"
+8 = "SAFE"
+
+Status docks:
+p2 = - DOOR -
+p3 = - SHAFT SENSE -
+p4 = - BLASTING -
+p5 = - MACHINE SAFE - (DELTA)
+p6 = - SHAFT IN PLACE - (DELTA)
+p7 = - BLASTING - (DELTA)
+
 TODO FOR DELTA
 ==============================
 (MY SIGNALS TO DELTA):
@@ -46,39 +47,45 @@ ARDUINO ACTIONS:
   ---> GND = IN PLACE
 */
 
-// TODO: Determine pins
-#define MACHINE_IS_SAFE digitalWrite(999999, HIGH)
-#define MACHINE_NOT_SAFE digitalWrite(999999, LOW)
+#include <Arduino.h>
+#include <SoftwareSerial.h>
+#include <EasyNextionLibrary.h>
+#include <stdlib.h> // for string operations
+#include <avr/wdt.h>
+#include <EEPROM.h>
 
-#define CURRENTLY_BLASTING digitalWrite(999999999, HIGH)
-#define NOT_BLASTING digitalWrite(999999999, LOW)
+#define RELAY_CTRL_PIN 8
+#define SHAFT_SENSE 2
+#define DOOR_SENSE 53
 
-#define DELTA_SHAFT_IN_PLACE digitalRead(99999999)
+#define MACHINE_SAFE_PIN 49 // OUTPUT
+#define CURRENTLY_BLASTING_PIN 45 // OUTPUT
+#define SHAFT_IN_PLACE_PIN 41 // INPUT
 
-
-
-
-#define EEPROM_CONTENTS_START_ADDRESS 0 // 4 bytes wide
-
-enum CLUB_TYPE { GRAPHITE, IRON, GENERIC };
-
-/*
-Machine status definitions:
-PICTURE ID - DESCRIPTION
-2 - "CLOSED"
-3 - "NO"
-4 - "NO SHAFT"
-5 - "OPEN"
-6 - "YES"
-*/
+// convenience defines
+#define RELAY_ON             digitalWrite(RELAY_CTRL_PIN, HIGH)
+#define RELAY_OFF            digitalWrite(RELAY_CTRL_PIN, LOW)
+#define SHAFT_SENSOR_PIN     digitalRead(SHAFT_SENSE)
+#define DOOR_SENSOR_PIN      digitalRead(DOOR_SENSE) // 5V=DOOR OPEN / GND=DOOR CLOSED
+// delta signals
+#define MACHINE_IS_SAFE      digitalWrite(MACHINE_SAFE_PIN, HIGH)
+#define MACHINE_NOT_SAFE     digitalWrite(MACHINE_SAFE_PIN, LOW)
+#define CURRENTLY_BLASTING   digitalWrite(CURRENTLY_BLASTING_PIN, HIGH)
+#define NOT_BLASTING         digitalWrite(CURRENTLY_BLASTING_PIN, LOW)
+#define DELTA_SHAFT_IN_PLACE digitalRead(SHAFT_IN_PLACE_PIN)
 
 #define NEX_CLOSED   2
 #define NEX_NO       3
 #define NEX_NO_SHAFT 4
 #define NEX_OPEN     5
 #define NEX_YES      6
+#define NEX_NOT_SAFE 7
+#define NEX_SAFE     8
 
-// object instantiations
+#define EEPROM_CONTENTS_START_ADDRESS 0 // 4 bytes wide
+
+enum CLUB_TYPE { GRAPHITE, IRON, GENERIC };
+
 SoftwareSerial swSerial(11, 12); // nextion display will be connected to 11(RX-BLUE) and 12(TX-YELLOW)
 EasyNex myNex(swSerial);
 
@@ -104,6 +111,7 @@ EEPROM_CONTENTS ec;
 
 boolean prev_shaft_sensor_value = true; // PULL-UP, AKA no shaft present = HIGH
 boolean prev_door_sensor_value = true; // DOOR-OPEN, starting with door open as default for safety
+boolean prev_sip_delta_value = true; // PULL-UP (AKA shaft NOT in place)
 boolean turn_on_blaster_relay = false;
 
 // variables for tracking nextion button presses
@@ -139,10 +147,6 @@ void updateNextionScreen() {
   unsigned long seconds = led_on_time / 1000;
   myNex.writeStr("t1.txt", String(seconds));
   myNex.writeStr("t2.txt", String(ec.EEPROM_total_shaft_count));
-}
-
-void updateNextionScreenMachineStatus() {
-
 }
 
 void updateEEPROMContents() {
@@ -207,16 +211,20 @@ void clearEEPROMContents() {
 }
 
 void setup() {
+  wdt_disable(); // data sheet recommends disabling wdt immediately while uC starts up
+  
   //Serial.begin(9600); // for testing EEPROM
   myNex.begin(38400);
-
-  wdt_disable(); // data sheet recommends disabling wdt immediately while uC starts up
 
   pinMode(2, INPUT); // shaft sensor pin
   pinMode(53, INPUT_PULLUP); // 5V = DOOR OPEN. Door 
                              // safety pin. INPUT_PULLUP so that if door sensor is missing,
                              // the system will safely default to a "DOOR OPEN" state
   pinMode(8, OUTPUT); // relay on/off pin
+
+  pinMode(MACHINE_SAFE_PIN, OUTPUT); // 24V = NOT SAFE, GND = SAFE
+  pinMode(CURRENTLY_BLASTING_PIN, OUTPUT); // 24V = NOT SAFE, GND = SAFE
+  pinMode(SHAFT_IN_PLACE_PIN, INPUT); // 5V = NOT IN PLACE, GND = IN PLACE
 
   delaySafeMillis(5);
 
@@ -237,6 +245,7 @@ void Start_Blasting() {
   CURRENTLY_BLASTING; // signal to delta
   turn_on_blaster_relay = true;
   myNex.writeNum("p4.pic", NEX_YES); // "BLASTING = YES"
+  myNex.writeNum("p7.pic", NEX_YES);
   RELAY_ON;
 }
 
@@ -245,6 +254,7 @@ void Stop_Blasting() {
   RELAY_OFF;
   NOT_BLASTING; // signal to delta
   myNex.writeNum("p4.pic", NEX_NO); // "BLASTING = NO"
+  myNex.writeNum("p7.pic", NEX_NO);
   total_shaft_count += 1;
   updateNextionScreen(); // update the shaft count
 }
@@ -269,10 +279,22 @@ void loop() {
     if(!current_door_sensor_value) {
       MACHINE_IS_SAFE; // to delta
       myNex.writeNum("p2.pic", NEX_CLOSED);   // DETECT DOOR OPEN->CLOSE TRANSITION
+      myNex.writeNum("p5.picc", NEX_SAFE);
     } 
     else if (current_door_sensor_value) {
       MACHINE_NOT_SAFE; // to delta
       myNex.writeNum("p2.pic", NEX_OPEN);     // DETECT DOOR CLOSE->OPEN TRANSITION
+      myNex.writeNum("P5.picc", NEX_NOT_SAFE);
+    }
+  }
+
+  // update nextion display shaft in place information
+  if(current_delta_sip_value != prev_sip_delta_value) {
+    if(!current_delta_sip_value) {
+      myNex.writeNum("P6.picc", NEX_YES);
+    }
+    else if(current_delta_sip_value) {
+      myNex.writeNum("P6.picc", NEX_NO_SHAFT);
     }
   }
 
@@ -292,7 +314,6 @@ void loop() {
     if(!current_door_sensor_value) {
       //if (prev_shaft_sensor_value == true && current_shaft_sensor_value == false) { // check if this is a HIGH->LOW transition
       if(!current_delta_sip_value && !current_shaft_sensor_value) {
-        //myNex.writeNum("p3.pic", NEX_YES); // "SHAFT SENSE = YES" !!! TODO: SHOW NEXTION SCREEN "SHAFT IN PLACE" IMAGE
         Start_Blasting();
         last_led_start_time = millis();
         last_debounce_time = last_led_start_time; 
@@ -346,4 +367,5 @@ void loop() {
   
   prev_shaft_sensor_value = current_shaft_sensor_value;
   prev_door_sensor_value  = current_door_sensor_value;
+  prev_sip_delta_value = current_delta_sip_value;
 }
