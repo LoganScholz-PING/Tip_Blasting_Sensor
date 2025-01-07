@@ -247,6 +247,87 @@ void resetBeforeEnteringAutoMode()
   updateManualOrAutoModeStatusTextOnNextionScreen();
 }
 
+void initOnStartup()
+{
+  // read the current value of all signals and 
+  prev_shaft_sensor_value  = SHAFT_SENSOR;    // LOW = SHAFT PRESENT // HIGH = NO SHAFT PRESENT
+  prev_door_sensor_value   = DOOR_SENSOR;     // LOW = DOOR CLOSED // HIGH = DOOR OPEN
+  // external signals from delta machine
+  prev_sip_delta_value     = DELTA_CELL_SHAFT_IN_PLACE;
+  prev_delta_cell_on_value = DELTA_CELL_ON;
+  prev_delta_cell_faulted_value = DELTA_CELL_FAULTED;
+  prev_delta_cell_in_auto_value = DELTA_CELL_IN_AUTO;
+
+  if(!prev_shaft_sensor_value) 
+  {
+    DELTA_YES_SHAFT;
+    myNex.writeNum("p6.pic", NEX_YES);
+    myNex.writeNum("p3.pic", NEX_YES);      // DETECT SHAFT PRESENT
+  }
+  else if (prev_shaft_sensor_value) 
+  {
+    DELTA_NO_SHAFT;
+    myNex.writeNum("p6.pic", NEX_NO_SHAFT);
+    myNex.writeNum("p3.pic", NEX_NO_SHAFT); // DETECT SHAFT ABSENT
+  }
+
+  if(!prev_door_sensor_value) 
+  {
+    DELTA_MACHINE_IS_SAFE; // to delta
+    myNex.writeNum("p2.pic", NEX_CLOSED);   // DETECT DOOR OPEN->CLOSE TRANSITION
+    myNex.writeNum("p5.pic", NEX_SAFE);
+  } 
+  else if (prev_door_sensor_value) 
+  {
+    DELTA_MACHINE_NOT_SAFE; // to delta
+    myNex.writeNum("p2.pic", NEX_OPEN);     // DETECT DOOR CLOSE->OPEN TRANSITION
+    myNex.writeNum("p5.pic", NEX_NOT_SAFE);
+  }
+
+  if(prev_sip_delta_value) 
+  {
+    myNex.writeNum("p8.pic", NEX_YES);
+    currentShaftBlastHasBeenHandled_Delta = true; // VET THIS!!
+  }
+  else if(!prev_sip_delta_value) 
+  {
+    myNex.writeNum("p8.pic", NEX_NO_SHAFT);
+    currentShaftBlastHasBeenHandled_Delta = true; // VET THIS!!
+  }
+
+  if(prev_delta_cell_on_value) 
+  {
+    myNex.writeNum("p9.pic", NEX_YES);
+  }
+  else if(!prev_delta_cell_on_value) 
+  {
+    myNex.writeNum("p9.pic", NEX_NO);
+  }
+
+  if(prev_delta_cell_faulted_value) 
+  {
+    myNex.writeNum("p10.pic", NEX_YES);
+  }
+  else if(!prev_delta_cell_faulted_value) 
+  {
+    myNex.writeNum("p10.pic", NEX_NO);
+  }
+
+  if(prev_delta_cell_in_auto_value) 
+  {
+    myNex.writeNum("p11.pic", NEX_YES);
+  }
+  else if(!prev_delta_cell_in_auto_value) 
+  {
+    myNex.writeNum("p11.pic", NEX_NO);
+  }
+
+  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+}
+
 void outputHeartbeatSignal_WithTimer() // new HB
 {
   heartbeatLogicalState = !heartbeatLogicalState;
@@ -374,6 +455,8 @@ void setup()
                       // 01000000 = just interrupt
 
   loadEEPROMContents();
+
+  initOnStartup(); // poll all inputs and reflect them to nextion screen
 
   updateNextionScreen();
 
