@@ -3,50 +3,6 @@ EEPROM CONTENTS DEFINITION:
 Address 0 = total shafts blasted over all time (unsigned long 32 bit (4 byte) variable)
 */
 
-/*
-Picture enums:
-2 = "CLOSED"
-3 = "NO"
-4 = "NO SHAFT"
-5 = "OPEN"
-6 = "YES"
-7 = "NOT SAFE"
-8 = "SAFE"
-
-Status docks:
-p2 = - DOOR -
-p3 = - SHAFT SENSE -
-p4 = - BLASTING -
-p5 = - MACHINE SAFE - (DELTA)
-p6 = - SHAFT IN PLACE - (DELTA)
-p7 = - BLASTING - (DELTA)
-
-TODO FOR DELTA
-==============================
-(MY SIGNALS TO DELTA):
-1. Machine is Safe Signal (Door closed)
- --> GND (SAFE) // 24V (UNSAFE)
-2. Currently Blasting Signal
- --> GND (BLASTING) // 24V (NOT BLASTING)
-==============================
-(DELTA'S SIGNAL BACK TO ME):
-1. SHAFT IN PLACE
- --> GND (NOT IN PLACE) // 24V (IN PLACE) <----- !! TODO: Follow up with them on this
-
-
-ARDUINO ACTIONS:
- 1. OUTPUT for "Machine is Safe"
-  ---> 5V = SAFE
-  ---> GND = NOT SAFE
- 2. OUTPUT for "CURRENTLY BLASTING"
-  ---> 5V = BLASTING
-  ---> GND = NOT BLASTING
-
- 3. INPUT for "SHAFT IN PLACE"
-  ---> 5V = NOT IN PLACE
-  ---> GND = IN PLACE
-*/
-
 #include <Arduino.h>
 #include <SoftwareSerial.h>
 #include <EasyNextionLibrary.h>
@@ -54,12 +10,10 @@ ARDUINO ACTIONS:
 #include <avr/wdt.h>
 #include <EEPROM.h>
 
-//#include <MsTimer2.h>
-
 bool enableSerialDebug = true;
 
 #define SHAFT_SENSE_PIN 2
-#define MODE_PIN 4
+#define MODE_PIN 14
 #define RELAY_CTRL_PIN 8
 #define DOOR_SENSE_PIN 53
 
@@ -71,7 +25,6 @@ bool enableSerialDebug = true;
 #define MODE_CHOICE      digitalRead(MODE_PIN);
 
 // delta signals
-// !!! TODO: The logic will likely need to be flipped so 24V = true AFTER the Opto-isolation !!!!
 
 /*
 Need:
@@ -84,19 +37,7 @@ FROM Delta:
 TO Delta:
 1. MACHINE_IS_SAFE ---> DONE (Except for maybe flipping logical state)
 2. CURRENTLY_BLASTING ---> DONE (Except for maybe flipping logical state)
-3. HEARTBEAT ---> TODO: DEFINE A PIN
-
-
-
-IDEA: at the top of the main loop, gather the delta signals together into a single GO/NO-GO signal:
-
-Consists of:
-* For normal machine operation:
-DELTA_WORKING = [DELTA_CELL_ON] AND [DELTA_CELL_IN_AUTO] AND [NOT(DELTA_CELL_FAULTED)] 
-
-* For activating the pneumatic solenoid in order to blast:
-DELTA_BLASTING = [DELTA_WORKING] AND [DELTA_CELL_SHAFT_IN_PLACE]
-
+3. HEARTBEAT ---> STATIC TRUE when machine is ON
 */
 
 // "DELTA_INPUT" means I am receiving this signal from DELTA
@@ -391,8 +332,6 @@ void loadEEPROMContents()
   }
 }
 
-
-
 void clearEEPROMContents() 
 {
   // set first 4 bytes to 0 (ADDR0,1,2,3)
@@ -417,7 +356,7 @@ void setup()
   pinMode(RELAY_CTRL_PIN, OUTPUT); // relay on/off pin
 
   pinMode(DELTA_OUTPUT_MACHINE_SAFE_PIN, OUTPUT);
-  pinMode(DELTA_OUTPUT_HEARTBEAT_PIN, OUTPUT); // HB
+  pinMode(DELTA_OUTPUT_HEARTBEAT_PIN, OUTPUT);
   pinMode(DELTA_OUTPUT_CURRENTLY_BLASTING_PIN, OUTPUT);
   pinMode(DELTA_OUTPUT_SHAFT_IN_PLACE_PIN, OUTPUT);
 
@@ -426,9 +365,7 @@ void setup()
   pinMode(DELTA_INPUT_CELL_FAULTED_PIN, INPUT); 
   pinMode(DELTA_INPUT_CELL_IN_AUTO_PIN, INPUT); 
 
-
   delaySafeMillis(5);
-
 
   DELTA_MACHINE_NOT_SAFE; // to delta
   DELTA_NOT_BLASTING; // to delta
@@ -440,6 +377,7 @@ void setup()
   digitalWrite(DELTA_OUTPUT_HEARTBEAT_PIN, false);  // HB 
 
   ModeStatus_ManualIfTrueAutoIfFalse = MODE_CHOICE; // check initial state of the switch
+  mode_switch_previous_value = ModeStatus_ManualIfTrueAutoIfFalse;
 
   if(!ModeStatus_ManualIfTrueAutoIfFalse)
   {
@@ -459,11 +397,6 @@ void setup()
   initOnStartup(); // poll all inputs and reflect them to nextion screen
 
   updateNextionScreen();
-
-  myNex.writeNum("p10.pic", NEX_YES); // this is a kluge, fix the nextion screen to have NEX_YES as the default
-
-  //MsTimer2::set(150, outputHeartbeatSignal_WithTimer); // HB NEW
-  //MsTimer2::start();  // HB NEW
 }
 
 void Start_Blasting() 
@@ -502,7 +435,6 @@ bool checkDeltaMachineIsWorkingAndAvailable()
   bool current_delta_cell_faulted_value = DELTA_CELL_FAULTED;
   bool current_delta_cell_in_auto_value = DELTA_CELL_IN_AUTO;
 
-  // TODO: Need to thoroughly vet the logical levels here, make sure 24V = TRUE
   out = current_delta_cell_on_value and current_delta_cell_in_auto_value and !current_delta_cell_faulted_value;
 
   return out;
