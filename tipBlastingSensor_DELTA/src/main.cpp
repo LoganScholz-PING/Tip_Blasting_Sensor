@@ -84,6 +84,8 @@ EasyNex myNex(swSerial);
 unsigned long debounce_timeout    = 250;  // milliseconds
 unsigned long last_debounce_time  = 0;    // milliseconds
 unsigned long totalBlastTime         = 7000; // milliseconds
+unsigned long totalBlastTime_min = 1000;
+unsigned long totalBlastTime_max = 30000;
 unsigned long previousBlastStartTime = 0;
 unsigned long total_shaft_count   = 0;
 unsigned long lastHeartbeatTime = 0;  // HB
@@ -618,14 +620,14 @@ void automationModeLoop()
   if(nexbtn_sub_1_second) 
   {
     totalBlastTime -= 1000;
-    if(totalBlastTime <= 0) totalBlastTime = 1000; // clamp to a min time
+    if(totalBlastTime <= 0) totalBlastTime = totalBlastTime_min; // clamp to a min time
     updateEEPROMContents();
   }
 
   if(nexbtn_add_1_second) 
   {
     totalBlastTime += 1000;
-    if(totalBlastTime > 15000) totalBlastTime = 15000; // clamp to a max time
+    if(totalBlastTime > totalBlastTime_max) totalBlastTime = totalBlastTime_max; // clamp to a max time
     updateEEPROMContents();
   }
 
@@ -712,13 +714,13 @@ void manualModeLoop()
 
   if(nexbtn_sub_1_second) {
     totalBlastTime -= 1000;
-    if(totalBlastTime <= 0) totalBlastTime = 1000; // clamp to a min time
+    if(totalBlastTime <= 0) totalBlastTime = totalBlastTime_min; // clamp to a min time
     updateEEPROMContents();
   }
 
   if(nexbtn_add_1_second) {
     totalBlastTime += 1000;
-    if(totalBlastTime > 15000) totalBlastTime = 15000; // clamp to a max time
+    if(totalBlastTime > totalBlastTime_max) totalBlastTime = totalBlastTime_max; // clamp to a max time
     updateEEPROMContents();
   }
 
